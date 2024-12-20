@@ -1,6 +1,38 @@
 import { type AnalyticProvider } from "@hcengineering/analytics"
 import posthog from 'posthog-js'
 
+// Error type definitions
+interface ErrorCategories {
+  WebRTC: string[]
+  Database: string[]
+  APIServer: string[]
+}
+
+const ERROR_PATTERNS: ErrorCategories = {
+  WebRTC: [
+    'RTCPeerConnection',
+    'MediaStream',
+    'AudioContext',
+    'AudioNode',
+    'Track connection',
+    'WebRTC'
+  ],
+  Database: [
+    'Invalid Id',
+    'Invalid lookup',
+    'duplicate key',
+    'ancestor',
+    'DB structure'
+  ],
+  APIServer: [
+    'Internal Server Error',
+    'Bad Gateway',
+    'Service Unavailable',
+    'Server Timeout',
+    'Request Processing'
+  ]
+}
+
 export class PosthogAnalyticProvider implements AnalyticProvider {
   init(config: Record<string, any>): boolean {
     if (config.POSTHOG_API_KEY !== undefined && config.POSTHOG_API_KEY !== '' && config.POSTHOG_HOST !== null) {
@@ -36,9 +68,35 @@ export class PosthogAnalyticProvider implements AnalyticProvider {
     posthog.capture(event, params)
   }
   handleError(error: Error): void {
-    posthog.capture(error.message)
+    const env = typeof process !== 'undefined' && process.env.NODE_ENV === 'production'
+      ? 'production'
+      : 'development'
+
+    posthog.capture('error', {
+      error_message: error.message,
+      error_type: this.categorizeError(error),
+      environment: env,
+      url: typeof window !== 'undefined' ? window.location.href : undefined,
+      stack: error.stack
+    })
   }
   navigate(path: string): void {
     posthog.capture('$pageview')
+  }
+
+  private categorizeError(error: Error): string {
+    const errorMessage = error.message.toLowerCase()
+
+    if (ERROR_PATTERNS.WebRTC.some(pattern =>
+      errorMessage.includes(pattern.toLowerCase()))) {
+      return 'WebRTC'
+    }
+
+    if (ERROR_PATTERNS.Database.some(pattern =>
+      errorMessage.includes(pattern.toLowerCase()))) {
+      return 'Database'
+    }
+
+    return 'API/Server'
   }
 }
