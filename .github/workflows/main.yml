@@ -6,18 +6,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Controls when the action will run.
 on:
-  # Triggers the workflow on push or pull request events but only for the main branch
   push:
     branches: [develop]
-    tags:
-      - v*
-      - s*
+    tags: [v*, s*]
   pull_request:
     branches: [develop, main]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 env:
@@ -44,440 +38,168 @@ env:
   MODEL_VERSION_MODE: ${{ startsWith(github.ref, 'refs/tags/s') && 'tagTime' || 'file' }}
   INIT_SCRIPTS_BRANCH: 'unified-init-scripts'
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
+  setup:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           filter: tree:0
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
       - name: Cache node modules
         uses: actions/cache@v4
-        env:
-          cache-name: cache-node-platform
         with:
           path: |
             common/temp
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+            ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}-
+            ${{ runner.os }}-modules-
 
-      # - name: Cheking model is updated...
-      #   run: node common/scripts/check_model_version.js
+      - name: Install dependencies
+        run: |
+          node common/scripts/install-run-rush.js check
+          node common/scripts/install-run-rush.js install
+          node common/scripts/install-run-rush.js model-version
 
-      - name: Checking for mis-matching dependencies...
-        run: node common/scripts/install-run-rush.js check
+      - name: Build
+        run: node common/scripts/install-run-rush.js build -p max
 
-      - name: Installing...
-        run: node common/scripts/install-run-rush.js install
+      - name: Bundle
+        run: node common/scripts/install-run-rush.js bundle -p max
 
-      - name: Model version from git tags
-        run: node common/scripts/install-run-rush.js model-version
-
-      - name: Building...
-        run: node common/scripts/install-run-rush.js build -p 20
-
-      - name: Bundle...
-        run: node common/scripts/install-run-rush.js bundle -p 20
-
-      - name: Validate...
-        run: node common/scripts/install-run-rush.js validate -p 20
+      - name: Validate
+        run: node common/scripts/install-run-rush.js validate -p max
 
       - name: Cache build results
         uses: actions/cache@v4
-        env:
-          cache-name: cache-build-results
         with:
           path: ${{ env.CacheFolders}}
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-  svelte-check:
-    needs: build
+          key: build-${{ github.sha }}
+
+  quality:
+    needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        check: ['svelte-check', 'formatting']
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          filter: tree:0
-
+          fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-
-      - name: Cache build results
+      - name: Restore build cache
         uses: actions/cache@v4
-        env:
-          cache-name: cache-build-results
         with:
           path: ${{ env.CacheFolders}}
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
+          key: build-${{ github.sha }}
 
-      - name: Checking svelte sources...
-        run: node common/scripts/install-run-rush.js svelte-check
-  formatting:
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-      - name: Cache build results
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-build-results
-        with:
-          path: ${{ env.CacheFolders}}
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
+      - name: Run ${{ matrix.check }}
+        run: node common/scripts/install-run-rush.js ${{ matrix.check }}
 
-      - name: Apply templates...
-        run: node common/scripts/install-run-rush.js apply-templates
-
-      - name: Check templates
-        run: |
-          echo '================================================================'
-          echo 'Checking for diff files'
-          echo '================================================================'
-          git diff '*.js' '*.ts' '*.svelte' '*.json' '*.yaml' | cat
-          [ -z "$(git diff --name-only '*.js' '*.ts' '*.svelte' '*.json' '*.yaml' | cat)" ]
-          echo '================================================================'
-      - name: Formatting...
-        run: node common/scripts/install-run-rush.js fast-format
-      - name: Check files formatting
-        run: |
-          echo '================================================================'
-          echo 'Checking for diff files'
-          echo '================================================================'
-          git diff '*.js' '*.ts' '*.svelte' '*.json' '*.yaml' | cat
-          [ -z "$(git diff --name-only '*.js' '*.ts' '*.svelte' '*.json' '*.yaml' | cat)" ]
-          echo '================================================================'
   test:
-    needs: build
+    needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          filter: tree:0
+          fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-      - name: Cache build results
+      - name: Restore build cache
         uses: actions/cache@v4
-        env:
-          cache-name: cache-build-results
         with:
           path: ${{ env.CacheFolders}}
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
+          key: build-${{ github.sha }}
 
-      - name: Prepare server
+      - name: Prepare and run tests
         run: |
           cd ./tests
           ./prepare-tests.sh
-      - name: Testing...
-        run: node common/scripts/install-run-rush.js test
+          node ../common/scripts/install-run-rush.js test
         env:
           DB_URL: 'postgresql://postgres:example@localhost:5433'
           ELASTIC_URL: 'http://localhost:9201'
           MONGO_URL: 'mongodb://localhost:27018'
+
   uitest:
+    needs: setup
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        test-suite: ['default', 'pg', 'qms']
+        shard: [1, 2]  # Split tests into shards
+      fail-fast: false
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          filter: tree:0
+          fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
       - name: Cache node modules
         uses: actions/cache@v4
-        env:
-          cache-name: cache-node-platform
         with:
           path: |
             common/temp
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-
-      - name: Checking for mis-matching dependencies...
-        run: node common/scripts/install-run-rush.js check
-
-      - name: Installing...
-        run: node common/scripts/install-run-rush.js install
+            node_modules
+            */*/node_modules
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/pnpm-lock.yaml') }}
 
       - name: Docker Build
-        run: node common/scripts/install-run-rush.js docker:build  -p 20
-        env:
-          DOCKER_CLI_HINTS: false
-      - name: Prepare server
+        uses: docker/build-push-action@v5
+        with:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: false
+          load: true
+
+      - name: Prepare test environment
         run: |
-          cd ./tests
-          export DO_CLEAN="true"
-          ./prepare.sh
-      - name: Install Playwright
-        run: |
-          cd ./tests/sanity
-          node ../../common/scripts/install-run-rushx.js ci
-      - name: Start profiling
-        run: |
-          cd ./tests
-          ./profile-start.sh
+          if [ "${{ matrix.test-suite }}" = "pg" ]; then
+            cd ./tests && ./prepare-pg.sh
+          elif [ "${{ matrix.test-suite }}" = "qms" ]; then
+            cd ./qms-tests && ./prepare.sh
+          else
+            cd ./tests && ./prepare.sh
+          fi
+
       - name: Run UI tests
         run: |
-          cd ./tests/sanity          
-          node ../../common/scripts/install-run-rushx.js uitest
-      - name: Download profile
-        run: |
-          cd ./tests
-          ./profile-download.sh
-          npm install -g cpupro
-          ./profile-generate.sh
-      - name: Upload profiling results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: profiling
-          path: ./tests/profiles
-      - name: 'Store docker logs'
-        if: always()
-        run: |
-          cd ./tests/sanity
-          mkdir logs
-          docker logs $(docker ps | grep transactor | cut -f 1 -d ' ') > logs/transactor.log
-          docker logs $(docker ps | grep account | cut -f 1 -d ' ') > logs/account.log
-          docker logs $(docker ps | grep front | cut -f 1 -d ' ') > logs/front.log
-          docker logs $(docker ps | grep collaborator | cut -f 1 -d ' ') > logs/collaborator.log
+          TEST_DIR=${{ matrix.test-suite == 'qms' && './qms-tests/sanity' || './tests/sanity' }}
+          cd $TEST_DIR
+          node ../../common/scripts/install-run-rushx.js ci
+          node ../../common/scripts/install-run-rushx.js uitest --shard=${{ matrix.shard }}/2
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-results
-          path: ./tests/sanity/playwright-report/
-      # - name: Get Allure history
-      #   uses: actions/checkout@v4
-      #   if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-      #   continue-on-error: true
-      #   with:
-      #     ref: gh-pages
-      #     path: gh-pages
-      # - name: Generates Allure Report
-      #   uses: simple-elf/allure-report-action@master
-      #   if: always()
-      #   id: allure-report
-      #   with:
-      #     allure_results: ./tests/sanity/allure-results/
-      #     gh_pages: gh-pages
-      #     allure_report: allure-report
-      #     allure_history: allure-history
-      # - name: Upload allure test results
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: allure-report
-      #     path: ./allure-report/
-      # - name: Deploy report to Github Pages
-      #   if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-      #   uses: peaceiris/actions-gh-pages@v4
-      #   with:
-      #     PERSONAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     PUBLISH_BRANCH: gh-pages
-      #     PUBLISH_DIR: allure-history
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-logs
-          path: ./tests/sanity/logs
-      # - name: Upload DB snapshot
-      #   if: always()
-      #   uses: actions/upload-artifact@v3
-      #   with:
-      #     name: db-snapshot
-      #     path: ./tests/db_dump
-  uitest-pg:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: tree:0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-      - name: Cache node modules
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-node-platform
-        with:
+          name: test-results-${{ matrix.test-suite }}-${{ matrix.shard }}
           path: |
-            common/temp
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+            ./tests/sanity/playwright-report/
+            ./tests/sanity/logs/
+            ./qms-tests/sanity/playwright-report/
+            ./qms-tests/sanity/logs/
 
-      - name: Checking for mis-matching dependencies...
-        run: node common/scripts/install-run-rush.js check
-
-      - name: Installing...
-        run: node common/scripts/install-run-rush.js install
-
-      - name: Docker Build
-        run: node common/scripts/install-run-rush.js docker:build  -p 20
-        env:
-          DOCKER_CLI_HINTS: false
-      - name: Prepare server
-        run: |
-          cd ./tests
-          export DO_CLEAN="true"
-          ./prepare-pg.sh
-      - name: Install Playwright
-        run: |
-          cd ./tests/sanity
-          node ../../common/scripts/install-run-rushx.js ci
-      - name: Run UI tests
-        run: |
-          cd ./tests/sanity
-          node ../../common/scripts/install-run-rushx.js uitest
-      - name: 'Store docker logs'
-        if: always()
-        run: |
-          cd ./tests/sanity
-          mkdir logs
-          docker logs $(docker ps | grep transactor | cut -f 1 -d ' ') > logs/transactor.log
-          docker logs $(docker ps | grep account | cut -f 1 -d ' ') > logs/account.log
-          docker logs $(docker ps | grep front | cut -f 1 -d ' ') > logs/front.log
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-results-pg
-          path: ./tests/sanity/playwright-report/
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-logs-pg
-          path: ./tests/sanity/logs
-  uitest-qms:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          filter: tree:0
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-      - name: Cache node modules
-        uses: actions/cache@v4
-        env:
-          cache-name: cache-node-platform
-        with:
-          path: |
-            common/temp
-          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-
-      - name: Checking for mis-matching dependencies...
-        run: node common/scripts/install-run-rush.js check
-
-      - name: Installing...
-        run: node common/scripts/install-run-rush.js install
-
-      - name: Docker Build
-        run: node common/scripts/install-run-rush.js docker:build  -p 20
-        env:
-          DOCKER_CLI_HINTS: false
-      - name: Configure /etc/hosts
-        run: |
-            sudo echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
-      - name: Prepare server
-        run: |
-          cd ./qms-tests
-          export DO_CLEAN=true
-          ./prepare.sh
-      - name: Install Playwright
-        run: |
-          cd ./qms-tests/sanity
-          node ../../common/scripts/install-run-rushx.js ci
-      - name: Run UI tests
-        run: |
-          cd ./qms-tests/sanity
-          node ../../common/scripts/install-run-rushx.js uitest
-      - name: 'Store docker logs'
-        if: always()
-        run: |
-          cd ./qms-tests/sanity
-          mkdir logs
-          docker logs $(docker ps | grep transactor | cut -f 1 -d ' ') > logs/transactor.log
-          docker logs $(docker ps | grep account | cut -f 1 -d ' ') > logs/account.log
-          docker logs $(docker ps | grep front | cut -f 1 -d ' ') > logs/front.log
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-results-qms
-          path: ./qms-tests/sanity/playwright-report/
-      # - name: Get Allure history
-      #   uses: actions/checkout@v4
-      #   if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-      #   continue-on-error: true
-      #   with:
-      #     ref: gh-pages
-      #     path: gh-pages
-      # - name: Generates Allure Report
-      #   uses: simple-elf/allure-report-action@master
-      #   if: always()
-      #   id: allure-report
-      #   with:
-      #     allure_results: ./qms-tests/sanity/allure-results/
-      #     gh_pages: gh-pages
-      #     allure_report: allure-report
-      #     allure_history: allure-history
-      # - name: Upload allure test results
-      #   if: always()
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: allure-report-qms
-      #     path: ./allure-report/
-      # - name: Deploy report to Github Pages
-      #   if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-      #   uses: peaceiris/actions-gh-pages@v4
-      #   with:
-      #     PERSONAL_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      #     PUBLISH_BRANCH: gh-pages
-      #     PUBLISH_DIR: allure-history
-      - name: Upload Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-logs-qms
-          path: ./qms-tests/sanity/logs
   docker-build:
-    needs: [build, test, svelte-check, uitest]
+    needs: [quality, test, uitest]
+    if: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/s') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
