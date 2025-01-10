@@ -15,7 +15,7 @@
 
 import { type ClientSocketFactory } from '@hcengineering/client'
 import {
-  CollaborativeDoc,
+  type AccountClient,
   type AttachedData,
   type AttachedDoc,
   type Class,
@@ -26,6 +26,7 @@ import {
   type FindOptions,
   type FindResult,
   type Hierarchy,
+  type MarkupBlobRef,
   type Mixin,
   type MixinData,
   type MixinUpdate,
@@ -43,8 +44,8 @@ type WithPropertyType<T, X, Y> = {
 
 /** @public */
 export type WithMarkup<T> = WithPropertyType<
-WithPropertyType<T, CollaborativeDoc | undefined, MarkupContent | undefined>,
-CollaborativeDoc,
+WithPropertyType<T, MarkupBlobRef | undefined, MarkupContent | undefined>,
+MarkupBlobRef,
 MarkupContent
 >
 
@@ -53,6 +54,8 @@ MarkupContent
  * @public
  * */
 export type PlatformClient = {
+  client: AccountClient
+
   getHierarchy: () => Hierarchy
 
   getModel: () => ModelDb

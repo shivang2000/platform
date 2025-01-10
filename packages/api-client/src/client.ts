@@ -15,8 +15,8 @@
 
 import {
   type Account,
+  type AccountClient,
   type Class,
-  type Client,
   type Data,
   type Doc,
   type DocumentQuery,
@@ -83,7 +83,8 @@ async function createClient (
 }
 
 class PlatformClientImpl implements PlatformClient {
-  private readonly client: TxOperations
+  readonly client: AccountClient
+  private readonly txops: TxOperations
   private readonly markup: MarkupOperations
 
   constructor (
@@ -91,21 +92,22 @@ class PlatformClientImpl implements PlatformClient {
     private readonly workspace: string,
     private readonly token: string,
     private readonly config: ServerConfig,
-    private readonly connection: Client,
+    private readonly connection: AccountClient,
     private readonly account: Account
   ) {
-    this.client = new TxOperations(connection, account._id)
+    this.client = connection
+    this.txops = new TxOperations(connection, account._id)
     this.markup = createMarkupOperations(url, workspace, token, config)
   }
 
   // Client
 
   getHierarchy (): Hierarchy {
-    return this.client.getHierarchy()
+    return this.txops.getHierarchy()
   }
 
   getModel (): ModelDb {
-    return this.client.getModel()
+    return this.txops.getModel()
   }
 
   async findOne<T extends Doc>(
@@ -113,7 +115,7 @@ class PlatformClientImpl implements PlatformClient {
     query: DocumentQuery<T>,
     options?: FindOptions<T>
   ): Promise<WithLookup<T> | undefined> {
-    return await this.client.findOne(_class, query, options)
+    return await this.txops.findOne(_class, query, options)
   }
 
   async findAll<T extends Doc>(
@@ -121,7 +123,7 @@ class PlatformClientImpl implements PlatformClient {
     query: DocumentQuery<T>,
     options?: FindOptions<T>
   ): Promise<FindResult<T>> {
-    return await this.client.findAll(_class, query, options)
+    return await this.txops.findAll(_class, query, options)
   }
 
   async close (): Promise<void> {
@@ -152,7 +154,7 @@ class PlatformClientImpl implements PlatformClient {
   ): Promise<Ref<T>> {
     id ??= generateId()
     const data = await this.processMarkup<Data<T>>(_class, id, attributes)
-    return await this.client.createDoc(_class, space, data, id)
+    return await this.txops.createDoc(_class, space, data, id)
   }
 
   async updateDoc<T extends Doc>(
@@ -163,11 +165,11 @@ class PlatformClientImpl implements PlatformClient {
     retrieve?: boolean
   ): Promise<TxResult> {
     const update = await this.processMarkup<DocumentUpdate<T>>(_class, objectId, operations)
-    return await this.client.updateDoc(_class, space, objectId, update, retrieve)
+    return await this.txops.updateDoc(_class, space, objectId, update, retrieve)
   }
 
   async removeDoc<T extends Doc>(_class: Ref<Class<T>>, space: Ref<Space>, objectId: Ref<T>): Promise<TxResult> {
-    return await this.client.removeDoc(_class, space, objectId)
+    return await this.txops.removeDoc(_class, space, objectId)
   }
 
   // CollectionOperations
@@ -183,7 +185,7 @@ class PlatformClientImpl implements PlatformClient {
   ): Promise<Ref<P>> {
     id ??= generateId()
     const data = await this.processMarkup<AttachedData<P>>(_class, id, attributes)
-    return await this.client.addCollection(_class, space, attachedTo, attachedToClass, collection, data, id)
+    return await this.txops.addCollection(_class, space, attachedTo, attachedToClass, collection, data, id)
   }
 
   async updateCollection<T extends Doc, P extends AttachedDoc>(
@@ -197,7 +199,7 @@ class PlatformClientImpl implements PlatformClient {
     retrieve?: boolean
   ): Promise<Ref<T>> {
     const update = await this.processMarkup<DocumentUpdate<P>>(_class, objectId, operations)
-    return await this.client.updateCollection(
+    return await this.txops.updateCollection(
       _class,
       space,
       objectId,
@@ -217,7 +219,7 @@ class PlatformClientImpl implements PlatformClient {
     attachedToClass: Ref<Class<T>>,
     collection: Extract<keyof T, string> | string
   ): Promise<Ref<T>> {
-    return await this.client.removeCollection(_class, space, objectId, attachedTo, attachedToClass, collection)
+    return await this.txops.removeCollection(_class, space, objectId, attachedTo, attachedToClass, collection)
   }
 
   // MixinOperations
@@ -230,7 +232,7 @@ class PlatformClientImpl implements PlatformClient {
     attributes: WithMarkup<MixinData<D, M>>
   ): Promise<TxResult> {
     const data = await this.processMarkup<MixinData<D, M>>(objectClass, objectId, attributes)
-    return await this.client.createMixin(objectId, objectClass, objectSpace, mixin, data)
+    return await this.txops.createMixin(objectId, objectClass, objectSpace, mixin, data)
   }
 
   async updateMixin<D extends Doc, M extends D>(
@@ -241,7 +243,7 @@ class PlatformClientImpl implements PlatformClient {
     attributes: WithMarkup<MixinUpdate<D, M>>
   ): Promise<TxResult> {
     const update = await this.processMarkup<MixinUpdate<D, M>>(objectClass, objectId, attributes)
-    return await this.client.updateMixin(objectId, objectClass, objectSpace, mixin, update)
+    return await this.txops.updateMixin(objectId, objectClass, objectSpace, mixin, update)
   }
 
   // Markup
