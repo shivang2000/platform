@@ -14,7 +14,7 @@
 -->
 <script lang="ts">
   import { AttachmentStyledBox } from '@hcengineering/attachment-resources'
-  import calendar from '@hcengineering/calendar'
+  import calendar, { generateEventId } from '@hcengineering/calendar'
   import { Employee } from '@hcengineering/contact'
   import { EmployeeBox } from '@hcengineering/contact-resources'
   import core, { DocumentQuery, generateId, Markup, Ref } from '@hcengineering/core'
@@ -69,20 +69,74 @@
     return description.length === 0
   }
 
-  async function saveRequest () {
-    let date: number | undefined
-    if (value != null) date = value
-    if (date === undefined) return
-    if (type === undefined) return
-    if (employee === null) return
-    await client.addCollection(hr.class.Request, core.space.Workspace, employee, staff._class, 'requests', {
-      type: type._id,
-      tzDate: timeToTzDate(date),
-      tzDueDate: timeToTzDate(dueDate),
-      description,
-      department: staff.department
+  // async function saveRequest () {
+  //   let date: number | undefined
+  //   if (value != null) date = value
+  //   if (date === undefined) return
+  //   if (type === undefined) return
+  //   if (employee === null) return
+  //   await client.addCollection(hr.class.Request, core.space.Workspace, employee, staff._class, 'requests', {
+  //     type: type._id,
+  //     tzDate: timeToTzDate(date),
+  //     tzDueDate: timeToTzDate(dueDate),
+  //     description,
+  //     department: staff.department
+  //   })
+  //   await descriptionBox.createAttachments()
+  // }
+
+  export function saveUTC (date: Timestamp): Timestamp { // todo: decide with this
+    const utcdate = new Date(date)
+    return Date.UTC(
+      utcdate.getFullYear(),
+      utcdate.getMonth(),
+      utcdate.getDate(),
+      utcdate.getHours(),
+      utcdate.getMinutes(),
+      utcdate.getSeconds(),
+      utcdate.getMilliseconds()
+    )
+  }
+
+  async function createEvent (): Promise<void> {
+    const attachedTo: Ref<Doc> = calendar.ids.NoAttached
+    const attachedToClass: Ref<Class<Doc>> = calendar.class.Event
+
+    const allDayDuration = 24 * 60 * 60 * 1000 - 1 // todo: duplicated code
+    const startDate = new Date(date).setHours(0, 0, 0, 0)
+    if (dueDate - startDate < allDayDuration) dueDate = allDayDuration + startDate
+    else dueDate = new Date(dueDate).setHours(23, 59, 59, 999)
+
+    const account = await client.findOne('contact:class:PersonAccount', { // todo: person/staff vs account
+      person: staff._id
     })
-    await descriptionBox.createAttachments()
+
+    console.log(account)
+
+    await client.addCollection(
+      calendar.class.Event,
+      calendar.space.Calendar,
+      attachedTo,
+      attachedToClass,
+      'events',
+      {
+        calendar: `${account._id}_calendar`,
+        eventId: generateEventId(),
+        date: saveUTC(startDate),
+        dueDate: saveUTC(dueDate),
+        externalParticipants: [],
+        description,
+        visibility: 'public',
+        participants: [account._id], // todo: acc or person
+        reminders: [86400000], // todo: test - 1 day
+        title: 'PTO', // todo: handle other types
+        location: '',
+        allDay: true,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // todo: get timezone
+        access: 'owner' // ?
+      },
+      generateId() as Ref<Event>
+    )
   }
 
   function typeSelected (_id: Ref<RequestType>): void {
@@ -113,7 +167,7 @@
 <Card
   label={hr.string.CreateRequest}
   labelProps={{ type: typeLabel }}
-  okAction={saveRequest}
+  okAction={createEvent}
   canSave={value !== undefined && !notLimit}
   gap={'gapV-4'}
   on:close={() => {
