@@ -14,11 +14,11 @@
 -->
 <script lang="ts">
   import { AttachmentStyledBox } from '@hcengineering/attachment-resources'
-  import calendar, { generateEventId } from '@hcengineering/calendar'
+  import calendar, { Event, generateEventId } from '@hcengineering/calendar'
   import { Employee } from '@hcengineering/contact'
   import { EmployeeBox } from '@hcengineering/contact-resources'
   import core, { DocumentQuery, generateId, Markup, Ref } from '@hcengineering/core'
-  import { Request, RequestType, Staff, timeToTzDate } from '@hcengineering/hr'
+  import { Request, RequestType, Staff } from '@hcengineering/hr'
   import { translate } from '@hcengineering/platform'
   import { Card, createQuery, getClient } from '@hcengineering/presentation'
   import { EmptyMarkup } from '@hcengineering/text'
@@ -99,8 +99,11 @@
   }
 
   async function createEvent (): Promise<void> {
-    const attachedTo: Ref<Doc> = calendar.ids.NoAttached
-    const attachedToClass: Ref<Class<Doc>> = calendar.class.Event
+    let date: number | undefined
+    if (value != null) date = value
+    if (date === undefined) return
+    if (type === undefined) return
+    if (employee === null) return
 
     const allDayDuration = 24 * 60 * 60 * 1000 - 1 // todo: duplicated code
     const startDate = new Date(date).setHours(0, 0, 0, 0)
@@ -108,16 +111,17 @@
     else dueDate = new Date(dueDate).setHours(23, 59, 59, 999)
 
     const account = await client.findOne('contact:class:PersonAccount', { // todo: person/staff vs account
-      person: staff._id
+      person: employee
     })
 
-    console.log(account)
+    if (account === undefined) return
 
+    const eventId = generateEventId()
     await client.addCollection(
       calendar.class.Event,
       calendar.space.Calendar,
-      attachedTo,
-      attachedToClass,
+      calendar.ids.NoAttached,
+      calendar.class.Event,
       'events',
       {
         calendar: `${account._id}_calendar`,
@@ -127,15 +131,25 @@
         externalParticipants: [],
         description,
         visibility: 'public',
-        participants: [account._id], // todo: acc or person
+        participants: [account._id],
         reminders: [86400000], // todo: test - 1 day
-        title: 'PTO', // todo: handle other types
+        title: typeLabel,
         location: '',
         allDay: true,
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, // todo: get timezone
         access: 'owner' // ?
       },
-      generateId() as Ref<Event>
+      eventId
+    )
+
+    await client.createMixin(
+      eventId as Ref<Event>,
+      calendar.class.Event,
+      calendar.space.Calendar,
+      hr.mixin.HREvent,
+      {
+        type: type._id
+      }
     )
   }
 
