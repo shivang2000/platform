@@ -33,6 +33,7 @@ import {
   type Request,
   type RequestType,
   type Staff,
+  type HREvent,
   type TzDate
 } from '@hcengineering/hr'
 import {
@@ -51,7 +52,7 @@ import {
   type Builder
 } from '@hcengineering/model'
 import attachment from '@hcengineering/model-attachment'
-import calendar from '@hcengineering/model-calendar'
+import calendar, { TEvent } from '@hcengineering/model-calendar'
 import chunter from '@hcengineering/model-chunter'
 import contact, { TEmployee, TPersonAccount } from '@hcengineering/model-contact'
 import core, { TAttachedDoc, TDoc, TType } from '@hcengineering/model-core'
@@ -116,6 +117,12 @@ export class TDepartmentMember extends TPersonAccount implements DepartmentMembe
 export class TStaff extends TEmployee implements Staff {
   @Prop(TypeRef(hr.class.Department), hr.string.Department)
     department!: Ref<Department>
+}
+
+@Mixin(hr.mixin.HREvent, core.class.Class)
+export class THREvent extends TEvent implements HREvent {
+  @Prop(TypeRef(hr.class.RequestType), hr.string.RequestType)
+    type!: Ref<RequestType>
 }
 
 @Model(hr.class.RequestType, core.class.Doc, DOMAIN_MODEL)

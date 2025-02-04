@@ -16,6 +16,7 @@
 import type { Contact, Employee, PersonAccount } from '@hcengineering/contact'
 import type { Arr, AttachedDoc, Class, Doc, Markup, Mixin, Ref, Type } from '@hcengineering/core'
 import { NotificationType } from '@hcengineering/notification'
+import type { Event } from '@hcengineering/model-calendar'
 import type { Asset, IntlString, Plugin } from '@hcengineering/platform'
 import { plugin } from '@hcengineering/platform'
 import { Viewlet } from '@hcengineering/view'
@@ -47,6 +48,13 @@ export interface DepartmentMember extends PersonAccount {}
  */
 export interface Staff extends Employee {
   department: Ref<Department>
+}
+
+/**
+ * @public
+ */
+export interface HREvent extends Event {
+  type: Ref<RequestType>
 }
 
 /**
@@ -121,7 +129,8 @@ const hr = plugin(hrId, {
     PublicHoliday: '' as Ref<Class<PublicHoliday>>
   },
   mixin: {
-    Staff: '' as Ref<Mixin<Staff>>
+    Staff: '' as Ref<Mixin<Staff>>,
+    HREvent: '' as Ref<Mixin<HREvent>>
   },
   icon: {
     HR: '' as Asset,
