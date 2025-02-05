@@ -25,9 +25,9 @@
 
   const client = getClient()
 
-  async function getType (request: Request): Promise<RequestType | undefined> {
+  async function getType (hrEvent: HREvent): Promise<RequestType | undefined> {
     return await client.findOne(hr.class.RequestType, {
-      _id: request.type
+      _id: hrEvent.type
     })
   }
 
@@ -49,7 +49,7 @@
     {@const available = isAvailable(type)}
 
     <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <div
+    <button
       class="request flex-row-center flex-gap-2"
       class:flex-center={!shouldShowDescription}
       class:request--available={available}
@@ -74,7 +74,7 @@
           {/if}
         </span>
       {/if}
-    </div>
+      </button>
   {/if}
 {/await}
 

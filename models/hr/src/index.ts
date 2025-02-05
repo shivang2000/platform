@@ -154,7 +154,7 @@ export function TypeTzDate (): Type<TzDate> {
 
 @Model(hr.class.Request, core.class.AttachedDoc, DOMAIN_HR)
 @UX(hr.string.Request, hr.icon.PTO)
-export class TRequest extends TAttachedDoc implements Request {
+export class TRequest extends TAttachedDoc implements Request { // todo: remove this
   @Prop(TypeRef(hr.mixin.Staff), contact.string.Employee)
   @Index(IndexKind.Indexed)
   declare attachedTo: Ref<Staff>

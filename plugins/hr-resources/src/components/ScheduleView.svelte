@@ -15,9 +15,10 @@
 <script lang="ts">
   import { CalendarMode } from '@hcengineering/calendar-resources'
   import { Employee, PersonAccount } from '@hcengineering/contact'
+  import calendar, { Calendar, Event } from '@hcengineering/calendar'
   import contact from '@hcengineering/contact-resources/src/plugin'
   import { DocumentQuery, Ref, getCurrentAccount } from '@hcengineering/core'
-  import { Department, DepartmentMember, Request, RequestType, Staff, fromTzDate } from '@hcengineering/hr'
+  import { Department, DepartmentMember, RequestType, Staff, fromTzDate } from '@hcengineering/hr'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import tracker, { Issue } from '@hcengineering/tracker'
   import { Label } from '@hcengineering/ui'
@@ -59,7 +60,8 @@
   const currentEmployee = (getCurrentAccount() as PersonAccount).person
 
   let staff: Staff[] = []
-  let requests: Request[] = []
+  let hrEvents: HREvent[] = []
+
   let types: Map<Ref<RequestType>, RequestType> = new Map<Ref<RequestType>, RequestType>()
 
   typeQuery.query(hr.class.RequestType, {}, (res) => {
@@ -79,7 +81,7 @@
     { sort: { name: 1 } }
   )
 
-  let employeeRequests = new Map<Ref<Staff>, Request[]>()
+  let employeeEvents = new Map<Ref<Staff>, HREvent[]>() // staffEvents
 
   function getDescendants (
     department: Ref<Department>,
@@ -100,38 +102,64 @@
   let departmentStaff: Staff[]
   let editableList: Ref<Employee>[] = []
 
-  function update (staffIdsForOpenedDepartments: Ref<Staff>[], startDate: Date, endDate: Date) {
-    lq.query(
-      hr.class.Request,
+  // function updateRequests (staffIdsForOpenedDepartments: Ref<Staff>[], startDate: Date, endDate: Date) {
+  //   lq.query(
+  //     hr.class.Request,
+  //     {
+  //       'tzDueDate.year': { $gte: startDate.getFullYear() },
+  //       'tzDate.year': { $lte: endDate.getFullYear() },
+  //       attachedTo: { $in: staffIdsForOpenedDepartments }
+  //     },
+  //     (res) => {
+  //       requests = res
+  //     }
+  //   )
+  // }
+
+  function update (
+    departmentId: Ref<Department>
+  ): void {
+    const members = departmentById.get(departmentId)?.members // TODO: members is undefined!
+    if (members === undefined || members.length === 0) return
+
+    const calendars = members.map((m) => m + '_calendar' as Ref<Calendar>)
+    if (calendars.length === 0) return
+
+    lq.query<Event>(
+      calendar.class.Event,
       {
-        'tzDueDate.year': { $gte: startDate.getFullYear() },
-        'tzDate.year': { $lte: endDate.getFullYear() },
-        attachedTo: { $in: staffIdsForOpenedDepartments }
+        calendar: { $in: calendars },
+        'hr:mixin:HREvent': { $exists: true },
+        dueDate: { $gte: startDate.getTime() },
+        date: { $lte: endDate.getTime() }
       },
-      (res) => {
-        requests = res
+      (result) => {
+        console.log(result)
+        hrEvents = result
       }
     )
   }
 
-  $: update(staffIdsForOpenedDepartments, startDate, endDate)
+  $: update(department)
 
-  function updateRequest (requests: Request[], startDate: Date, endDate: Date) {
-    const res = requests.filter(
-      (r) => fromTzDate(r.tzDueDate) >= startDate.getTime() && fromTzDate(r.tzDate) <= endDate.getTime()
-    )
-    employeeRequests.clear()
-    for (const request of res) {
-      const requests = employeeRequests.get(request.attachedTo) ?? []
-      requests.push(request)
-      if (request.attachedTo) {
-        employeeRequests.set(request.attachedTo, requests)
-      }
+  function updateEmployeeEvents (events: Event[], startDate: Date, endDate: Date): void {
+    const result = events
+      .filter((r) => r.participants.length > 0)
+      .filter(
+      // (r) => fromTzDate(r.dueDate) >= startDate.getTime() && fromTzDate(r.date) <= endDate.getTime()
+        (r) => new Date(r.date).getTime() >= startDate.getTime() && new Date(r.dueDate).getTime() <= endDate.getTime() // todo: test
+      )
+    employeeEvents.clear()
+    for (const event of result) {
+      const employee = event.participants[0] as Ref<Staff>
+      const requests = employeeEvents.get(employee) ?? []
+      requests.push(event)
+      employeeEvents.set(employee, requests)
     }
-    employeeRequests = employeeRequests
+    employeeEvents = employeeEvents
   }
 
-  $: updateRequest(requests, startDate, endDate)
+  $: updateEmployeeEvents(hrEvents, startDate, endDate)
 
   function pushChilds (
     department: Ref<Department>,
@@ -273,15 +301,15 @@
 
   async function getDepartmentsForEmployee (departmentStaff: Staff[]): Promise<Map<Ref<Staff>, Department[]>> {
     const map = new Map<Ref<Staff>, Department[]>()
-    if (departmentStaff && departmentStaff.length > 0) {
+    if (departmentStaff !== undefined && departmentStaff.length > 0) {
       const ids = departmentStaff.map((staff) => staff._id)
-      const staffs = await client.findAll(contact.class.PersonAccount, { person: { $in: ids } })
+      const accounts = await client.findAll(contact.class.PersonAccount, { person: { $in: ids } }) // todo: reuse
       const departments = await client.findAll(hr.class.Department, {
-        members: { $in: staffs.map((staff) => staff._id as Ref<DepartmentMember>) }
+        members: { $in: accounts.map((staff) => staff._id as Ref<DepartmentMember>) }
       })
-      staffs.forEach((staff) => {
-        const filteredDepartments = departments.filter((department) => department.members.includes(staff._id))
-        map.set(staff.person as Ref<Staff>, filteredDepartments as Department[])
+      accounts.forEach((account) => {
+        const filteredDepartments = departments.filter((department) => department.members.includes(account._id))
+        map.set(account.person as Ref<Staff>, filteredDepartments as Department[])
       })
     }
     return map
@@ -294,12 +322,12 @@
 
 {#if staffDepartmentMap.size > 0}
   {#if mode === CalendarMode.Year}
-    <YearView {departmentStaff} {employeeRequests} {types} {currentDate} {holidays} {staffDepartmentMap} />
+    <YearView {departmentStaff} employeeRequests={employeeEvents} {types} {currentDate} {holidays} {staffDepartmentMap} />
   {:else if mode === CalendarMode.Month}
     {#if display === 'chart'}
       <MonthView
         {departmentStaff}
-        {employeeRequests}
+        employeeRequests={employeeEvents}
         {startDate}
         {endDate}
         {editableList}
@@ -312,7 +340,7 @@
     {:else if display === 'stats'}
       <MonthTableView
         {departmentStaff}
-        {employeeRequests}
+        employeeRequests={employeeEvents}
         {types}
         {currentDate}
         {timeReports}

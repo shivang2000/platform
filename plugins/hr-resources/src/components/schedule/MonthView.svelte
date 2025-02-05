@@ -47,7 +47,7 @@
   const minRowHeightRem = 4.375
 
   interface TimelineElement {
-    request: Request
+    event: Event
     date: number
     dueDate: number
     length: number
@@ -59,7 +59,7 @@
 
   interface TimelineRow {
     employee: Staff
-    requests: Request[]
+    events: HREvent[]
     tracks: TimelineRowTrack[]
   }
 
@@ -116,7 +116,7 @@
     return requests
   }
 
-  function buildTimelineRows (departmentStaff: Staff[], employeeRequests: Map<Ref<Staff>, Request[]>): TimelineRow[] {
+  function buildTimelineRows (departmentStaff: Staff[]): TimelineRow[] {
     const res: TimelineRow[] = []
 
     for (const employee of departmentStaff) {
@@ -246,7 +246,7 @@
   $: columnWidthRem = getColumnWidth(containerWidthRem - headerWidthRem, currentDate)
 
   let rows: TimelineRow[]
-  $: rows = buildTimelineRows(departmentStaff, employeeRequests)
+  $: rows = buildTimelineRows(departmentStaff)
 
   function getClickHandler (day: Date, staff: Staff): (e: MouseEvent, day: Date, staff: Staff) => void {
     return (e) => {
@@ -341,16 +341,16 @@
               <div class="timeline-events">
                 {#each tracks as track, trackIndex}
                   {#each track.elements as element}
-                    {@const request = element.request}
+                    {@const event = element.event}
                     <div
                       class="timeline-event-wrapper"
                       style={getElementStyle(element, trackIndex)}
                       use:tooltip={{
                         component: RequestsPopup,
-                        props: { requests: [request._id] }
+                        props: { requests: [event._id] } // todo: requests -> events
                       }}
                     >
-                      <ScheduleRequest {request} {editable} shouldShowDescription={element.length > 1} />
+                      <ScheduleRequest {event} {editable} shouldShowDescription={element.length > 1} />
                     </div>
                   {/each}
                 {/each}

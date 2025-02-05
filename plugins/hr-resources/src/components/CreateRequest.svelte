@@ -14,8 +14,8 @@
 -->
 <script lang="ts">
   import { AttachmentStyledBox } from '@hcengineering/attachment-resources'
-  import calendar, { Event, generateEventId } from '@hcengineering/calendar'
-  import { Employee } from '@hcengineering/contact'
+  import calendar, { Calendar, generateEventId } from '@hcengineering/calendar'
+  import contact, { Employee } from '@hcengineering/contact'
   import { EmployeeBox } from '@hcengineering/contact-resources'
   import core, { DocumentQuery, generateId, Markup, Ref } from '@hcengineering/core'
   import { Request, RequestType, Staff } from '@hcengineering/hr'
@@ -110,10 +110,9 @@
     if (dueDate - startDate < allDayDuration) dueDate = allDayDuration + startDate
     else dueDate = new Date(dueDate).setHours(23, 59, 59, 999)
 
-    const account = await client.findOne('contact:class:PersonAccount', { // todo: person/staff vs account
+    const account = await client.findOne(contact.class.PersonAccount, {
       person: employee
     })
-
     if (account === undefined) return
 
     const eventId = generateEventId()
@@ -131,7 +130,7 @@
         externalParticipants: [],
         description,
         visibility: 'public',
-        participants: [account._id],
+        participants: [employee],
         reminders: [86400000], // todo: test - 1 day
         title: typeLabel,
         location: '',
@@ -151,6 +150,16 @@
         type: type._id
       }
     )
+  }
+
+  async function findCalendarId (): Promise<Ref<Calendar> | undefined> { // todo: decide with this
+    const account = await client.findOne(contact.class.PersonAccount, {
+      person: staff._id
+    })
+
+    return account !== undefined
+      ? `${account._id}_calendar` as Ref<Calendar>
+      : undefined
   }
 
   function typeSelected (_id: Ref<RequestType>): void {
