@@ -49,6 +49,7 @@ import SpacePresenter from './components/navigator/SpacePresenter.svelte'
 import LabelsPresenter from './components/LabelsPresenter.svelte'
 
 export { default as CardSelector } from './components/CardSelector.svelte'
+export { default as Navigator } from './components/navigator-next/Navigator.svelte'
 
 export default async (): Promise<Resources> => ({
   component: {
